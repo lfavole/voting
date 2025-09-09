@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Vote Data Directory</h2>
+<ul>
+    {% for file in files %}
+        <li><a href="{% url 'ballot_view' pk=file.pk ballot_id=file.ballot_id %}">{{ file.ballot_id }}.json</a></li>
+    {% endfor %}
+</ul>
+<h3>Checksum File</h3>
+<pre>{{ checksum_file }}</pre>
+{% endblock %}

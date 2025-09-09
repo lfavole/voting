@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>All voting tokens for {{ vote }}</h1>
+<ul>
+{% for token in tokens %}
+    <li><a href="{% url "token" vote.uuid token.pk %}">{{ token.value }}</a></li>
+{% endfor %}
+</ul>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>All ballots for {{ vote }}</h1>
+<ul>
+{% for ballot in ballots %}
+    <li><a href="{% url "ballot" vote.uuid ballot.pk %}">{{ ballot.value }}</a></li>
+{% endfor %}
+</ul>
+{% endblock %}

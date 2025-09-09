@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Verify the key {{ key }}</h1>
+<form class="form" method="POST">
+    {% csrf_token %}
+    <ul>
+        <li>
+            Option 1: run a command
+            <br>
+            Please run this command on your computer:
+            <pre>{{ key.verification_command }}</pre>
+        </li>
+        <li>
+            Option 2: manually encrypt the message
+            <br>
+            Please encrypt the message:
+            <pre>{{ key.verification_message }}</pre>
+            and paste the result here:
+            <br>
+            {{ form.signed_message.label_tag }}
+            {{ form.signed_message }}
+        </li>
+    </ul>
+    <p><input type="submit" value="OK"></p>
+</form>
+<script>
+window.addEventListener('DOMContentLoaded', (event) => {
+    var timeout;
+
+    async function updateData() {
+        clearTimeout(timeout);
+
+        {% url "verify_key" key.id as url %}
+        const response = await fetch("{{ url|escapejs }}?check=1", {headers: {'Accept': 'application/json'}});
+        const data = await response.json();
+
+        if (data.data?.verified) {
+            location.href = location.pathname + "?verified=1";
+            return true;
+        }
+
+        timeout = setTimeout(updateData, 5000);
+    }
+
+    updateData();
+});
+</script>
+{% endblock %}

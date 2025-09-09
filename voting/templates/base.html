@@ -1,0 +1,42 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Secure Voting System</title>
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <header>
+        <h1>Secure Voting System</h1>
+        <nav>
+            <ul>
+                <li><a href="{% url 'home' %}">Home</a></li>
+                <li><a href="{% url 'public_keys' %}">Public Keys</a></li>
+                <li><a href="{% url 'get_token' %}">Get Token</a></li>
+                {% if user.is_authenticated %}
+                    <li><form method="POST" action="{% url 'account_logout' %}">{% csrf_token %}<input type="submit" value="Logout"></form></li>
+                    {% if user.is_staff %}
+                        <li><a href="{% url 'admin:index' %}">Admin</a></li>
+                    {% endif %}
+                {% else %}
+                    <li><a href="{% url 'account_login' %}">Login</a></li>
+                    <li><a href="{% url 'account_signup' %}">Sign Up</a></li>
+                {% endif %}
+            </ul>
+        </nav>
+    </header>
+    <ul class="messages">
+        {% for message in messages %}
+            <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <footer>
+        <small>&copy; 2025 Secure Voting System</small>
+    </footer>
+</body>
+</html>

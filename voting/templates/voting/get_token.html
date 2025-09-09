@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% load static %}
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/openpgp@5.5.0/dist/openpgp.min.js"></script>
+<script src="{% static 'voting/crypto.js' %}"></script>
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js" defer></script>
+{% endblock %}
+{% block content %}
+<h2>Get Voting Token</h2>
+<form method="POST">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <p><input type="submit" value="Request Token"></p>
+</form>
+<h2>Saved Voting Tokens</h2>
+<ul x-data="{
+    tokens: Object.entries(localStorage)
+        .filter(([key, value]) => key.startsWith('token_'))
+        .reduce((obj, [key, value]) => (obj[key] = value, obj), {}),
+}">
+    <template x-for="(token, key) in tokens" :key="token">
+        <li>
+            <pre x-text="token"></pre>
+            <span
+            @click="localStorage.removeItem(key); delete tokens[key];"
+            >x</span>
+        </li>
+    </template>
+</ul>
+{% endblock %}

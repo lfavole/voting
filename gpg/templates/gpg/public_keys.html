@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Public Keys</h1>
+<h2>Search for public keys</h2>
+<form method="POST">
+    {% csrf_token %}
+    {{ search_public_keys_form.as_p }}
+    <p>
+        <input type="submit" name="search" value="Search for public keys">
+    </p>
+</form>
+<h2>Add found public keys</h2>
+<form method="POST">
+    {% csrf_token %}
+    {{ add_temporary_public_keys_form.as_p }}
+    <p>
+        <input type="submit" name="add_temporary" value="Add found public keys">
+    </p>
+</form>
+<h2>Manage</h2>
+<form method="POST">
+    {% csrf_token %}
+    {{ manage_public_keys_form.as_p }}
+    <p>
+        <input type="submit" name="remove" value="Remove">
+        <input type="submit" name="verify" value="Verify">
+        <input type="submit" name="primary" value="Make primary">
+    </p>
+</form>
+<h2>Add</h2>
+<form method="POST">
+    {% csrf_token %}
+    {{ add_public_key_form.as_p }}
+    <p>
+        <input type="submit" name="add" value="OK">
+    </p>
+</form>
+{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% load static %}
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/openpgp@5.5.0/dist/openpgp.min.js"></script>
+<script src="{% static 'voting/crypto.js' %}"></script>
+{% endblock %}
+{% block content %}
+<h2>Submit Your Vote</h2>
+<form id="vote-form">
+    <label for="encrypted-token">Paste your encrypted token:</label><br>
+    <textarea id="encrypted-token" name="encrypted_token" rows="7" cols="70"></textarea><br>
+    <label for="private-key">Paste your GPG Private Key:</label><br>
+    <textarea id="private-key" name="private_key" rows="7" cols="70"></textarea><br>
+    <label for="passphrase">Passphrase:</label>
+    <input type="password" id="passphrase" name="passphrase"><br>
+    <label for="selection">Your Selection:</label>
+    <input type="text" name="selection" id="selection" required><br>
+    <input type="hidden" name="vote_type" value="{{ vote_type }}">
+    <button type="submit">Submit Vote</button>
+</form>
+<div id="vote-result"></div>
+<script>
+document.getElementById('vote-form').onsubmit = async function(e) {
+    e.preventDefault();
+    const encrypted = document.getElementById('encrypted-token').value;
+    const privateKeyArmored = document.getElementById('private-key').value;
+    const passphrase = document.getElementById('passphrase').value;
+    let decrypted_token = "";
+    try {
+        decrypted_token = await decryptToken(encrypted, privateKeyArmored, passphrase);
+    } catch (err) {
+        document.getElementById('vote-result').innerHTML = "<span style='color:red;'>Decryption failed: " + err + "</span>";
+        return;
+    }
+    const selection = document.getElementById('selection').value;
+    const vote_type = document.querySelector("[name=vote_type]").value;
+
+    const formData = new FormData();
+    formData.append('decrypted_token', decrypted_token);
+    formData.append('selection', selection);
+    formData.append('vote_type', vote_type);
+
+    const response = await fetch(window.location.href, {
+        method: "POST",
+        body: formData
+    });
+    const data = await response.json();
+    if (data.ballot_id) {
+        document.getElementById('vote-result').innerHTML = "<strong>Your ballot ID:</strong> " + data.ballot_id;
+    } else {
+        document.getElementById('vote-result').innerHTML = "<span style='color:red;'>Error: " + (data.error || "Unknown error") + "</span>";
+    }
+}
+</script>
+{% endblock %}
