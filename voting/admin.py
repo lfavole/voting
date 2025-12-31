@@ -1,19 +1,30 @@
 from allauth.account.models import EmailAddress
-from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from django.contrib.auth.forms import ReadOnlyPasswordHashField
 
-from .models import Ballot, ChoiceVote, CustomUser, Person, PersonVote, Proposition, Token, TokenAttribution
+from .models import Ballot, ChoiceVote, CustomUser, Person, PersonVote, Proposition, VoterStatus
 
 
 class EmailAddressInline(admin.TabularInline):
     model = EmailAddress
+    extra = 0
 
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
     inlines = [EmailAddressInline]
+    fieldsets = [
+        (
+            name,
+            {
+                'fields': [
+                    *[f for f in opts['fields'] if f != 'email'],
+                    *(["country"] if i == 1 else []),
+                ],
+            },
+        )
+        for i, (name, opts) in enumerate(UserAdmin.fieldsets)
+    ]
 
 
 @admin.register(Person)
@@ -36,25 +47,35 @@ class ChoiceVoteAdmin(admin.ModelAdmin):
     readonly_fields = ("uuid",)
 
 
-class TokenAdminForm(forms.ModelForm):
-    value = ReadOnlyPasswordHashField()
+@admin.register(VoterStatus)
+class VoterStatusAdmin(admin.ModelAdmin):
+    """
+    Permet de voir QUI a voté, mais pas CE QU'ILS ont voté.
+    Utile pour l'émargement numérique.
+    """
+    list_display = ('user', 'vote', 'has_signed', 'blinded_message_hash_preview')
+    list_filter = ('vote', 'has_signed')
+    search_fields = ('user__username',)
+    readonly_fields = ('blinded_message_hash', 'generated_signature')
 
-    class Meta:
-        model = Token
-        fields = "__all__"
-
-
-@admin.register(Token)
-class TokenAdmin(admin.ModelAdmin):
-    form = TokenAdminForm
-    fields = ("value", "vote", "is_used")
-
-
-@admin.register(TokenAttribution)
-class TokenAttributionAdmin(admin.ModelAdmin):
-    pass
-
+    def blinded_message_hash_preview(self, obj):
+        return f"{obj.blinded_message_hash[:20]}..." if obj.blinded_message_hash else "N/A"
+    blinded_message_hash_preview.short_description = "ID d'Aveuglement"
 
 @admin.register(Ballot)
 class BallotAdmin(admin.ModelAdmin):
-    pass
+    """
+    L'urne numérique.
+    Aucun lien avec l'utilisateur n'est affiché ici.
+    """
+    list_display = ('token_preview', 'vote', 'created_at')
+    list_filter = ('vote', 'created_at')
+    readonly_fields = ('uuid', 'token', 'result', 'server_signature', 'created_at')
+
+    def token_preview(self, obj):
+        return f"Bulletin {obj.token[:15]}..."
+    token_preview.short_description = "Jeton (ID Bulletin)"
+
+    def has_add_permission(self, request):
+        # On interdit l'ajout manuel de bulletins par l'admin pour l'intégrité
+        return False

@@ -13,8 +13,6 @@
         <nav>
             <ul>
                 <li><a href="{% url 'home' %}">Home</a></li>
-                <li><a href="{% url 'public_keys' %}">Public Keys</a></li>
-                <li><a href="{% url 'get_token' %}">Get Token</a></li>
                 {% if user.is_authenticated %}
                     <li><form method="POST" action="{% url 'account_logout' %}">{% csrf_token %}<input type="submit" value="Logout"></form></li>
                     {% if user.is_staff %}
@@ -24,6 +22,8 @@
                     <li><a href="{% url 'account_login' %}">Login</a></li>
                     <li><a href="{% url 'account_signup' %}">Sign Up</a></li>
                 {% endif %}
+                <li><a href="{% url 'submit_list' %}">Submit Vote</a></li>
+                <li><a href="{% url 'help' %}">Help</a></li>
             </ul>
         </nav>
     </header>

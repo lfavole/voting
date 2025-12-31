@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+    .help-container { max-width: 800px; margin: 2rem auto; line-height: 1.6; color: #333; }
+    .step-card {
+        background: #f8fafc; border-left: 4px solid #2563eb;
+        padding: 1.5rem; margin-bottom: 2rem; border-radius: 0 8px 8px 0;
+    }
+    .step-number { font-weight: bold; color: #2563eb; font-size: 1.2rem; }
+    .crypto-badge {
+        display: inline-block; background: #e2e8f0; padding: 2px 8px;
+        border-radius: 4px; font-family: monospace; font-size: 0.9rem;
+    }
+    .mermaid { background: white; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
+</style>
+
+<div class="help-container">
+    <h1>Comment votre anonymat est-il garanti ?</h1>
+    <p>
+        Notre système utilise un protocole de <strong>signature aveugle RSA</strong>.
+        C'est l'équivalent numérique d'un bulletin glissé dans une enveloppe avec du papier carbone.
+    </p>
+
+    <div class="mermaid">
+        sequenceDiagram
+            participant E as Électeur
+            participant S as Serveur (Identité)
+            participant U as Urne (Anonyme)
+
+            Note over E: 1. Cache le vote
+            E->>S: Envoie le bulletin masqué
+            S->>S: Vérifie l'identité
+            S->>E: Signe le masque (sans voir le vote)
+            Note over E: 2. Retire le masque
+            E->>U: Dépose le bulletin signé
+            U->>U: Vérifie la signature
+            Note over U: 3. Vote comptabilisé
+    </div>
+
+    <div class="step-card">
+        <span class="step-number">Étape 1 : L'enveloppe carbone (Aveuglement)</span>
+        <p>
+            Votre navigateur génère un <strong>Jeton secret</strong> unique. Il mélange ce jeton avec votre choix de vote, puis "cache" le tout derrière un masque mathématique aléatoire.
+            Le serveur reçoit ce message masqué : il sait <em>qui</em> vous êtes, mais ne peut pas lire votre vote.
+        </p>
+    </div>
+
+    <div class="step-card">
+        <span class="step-number">Étape 2 : Le sceau officiel (Signature)</span>
+        <p>
+            Le serveur appose sa signature numérique sur le message masqué. Cela prouve que vous avez le droit de voter.
+            Il enregistre que vous avez voté pour empêcher le double-vote, mais il ne connaît toujours pas le contenu du message qu'il vient de signer.
+        </p>
+    </div>
+
+    <div class="step-card">
+        <span class="step-number">Étape 3 : Le dépôt anonyme (Dé-aveuglement)</span>
+        <p>
+            Votre navigateur retire le masque aléatoire. Magie des mathématiques : la signature du serveur reste valide sur le message original !
+            Votre navigateur envoie ensuite ce bulletin (Jeton + Vote + Signature) à l'urne.
+            L'urne vérifie la signature, accepte le vote, mais n'a aucun moyen de savoir quel utilisateur a généré ce jeton.
+        </p>
+    </div>
+
+    <div class="alert warning" style="background:#fff3cd; border:1px solid #ffeeba; padding:1rem; border-radius:8px;">
+        <strong>Votre preuve de vote :</strong> À la fin du processus, un jeton vous est donné.
+        Lui seul vous permet de vérifier que votre bulletin est bien présent dans l'urne publique sans jamais révéler votre identité.
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true});</script>
+
+{% endblock %}

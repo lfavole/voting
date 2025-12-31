@@ -4,12 +4,12 @@ from . import views
 
 urlpatterns = [
     path("", views.HomepageView.as_view(), name="home"),
-    path("data/ballots/<uuid:vote_uuid>/<int:pk>", views.ballot_view, name="ballot"),
+    path("data/ballots/<uuid:vote_uuid>/<path:token>", views.ballot_view, name="ballot"),
     path("data/ballots/<uuid:vote_uuid>/", views.BallotListView.as_view(), name="ballot_list"),
-    path("data/tokens/<uuid:vote_uuid>/<int:pk>", views.token_view, name="token"),
-    path("data/tokens/<uuid:vote_uuid>/", views.TokenListView.as_view(), name="token_list"),
-    path("get-token", views.GetTokenFormView.as_view(), name="get_token"),
-    path("keys/", include("gpg.urls")),
-    path("submit-vote/<uuid:vote_uuid>", views.SubmitVoteView.as_view(), name="submit"),
+    path('vote/<uuid:vote_uuid>/public-key', views.get_public_key, name='get_public_key'),
+    path('vote/<uuid:vote_uuid>/sign', views.sign_blind_token, name='sign_blind_token'),
+    path('vote/<uuid:vote_uuid>/submit', views.submit_vote, name='submit_vote'),
+    path("submit-vote/<uuid:vote_uuid>", views.submit_vote_view, name="submit"),
     path("submit-vote/", views.VotesListView.as_view(), name="submit_list"),
+    path("help", views.voting_help, name="help"),
 ]

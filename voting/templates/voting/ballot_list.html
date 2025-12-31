@@ -1,9 +1,11 @@
 {% extends "base.html" %}
+{% load i18n %}
+
 {% block content %}
-<h1>All ballots for {{ vote }}</h1>
+<h1>{% blocktranslate %}All ballots for {{ vote }}{% endblocktranslate %}</h1>
 <ul>
 {% for ballot in ballots %}
-    <li><a href="{% url "ballot" vote.uuid ballot.pk %}">{{ ballot.value }}</a></li>
+    <li><a href="{% url "ballot" vote.uuid ballot.token %}">{{ ballot.token }}</a></li>
 {% endfor %}
 </ul>
 {% endblock %}

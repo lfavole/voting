@@ -58,13 +58,12 @@ INSTALLED_APPS = [
     "allauth.socialaccount",
     "allauth.socialaccount.providers.openid_connect",
     "debug_toolbar",
-    "gpg",
+    # "gpg",
     "polymorphic",
     "voting",
 ]
 
 MIDDLEWARE = [
-    "project.middleware.GlobalRequestMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

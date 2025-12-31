@@ -1,11 +1,10 @@
 {% extends "base.html" %}
+{% load i18n static %}
+
 {% block content %}
-<h2>Available Votes</h2>
-<ul>
-    {% for vote in votes %}
-    <li>
-        <a href="{% url 'submit' vote.uuid %}">{{ vote.name }}</a>
-    </li>
-    {% endfor %}
-</ul>
+<h2>{% trans "Available votes" %}</h2>
+<submit-vote-form uuid="{% for vote in votes %}{{ vote.uuid }}{% if not forloop.last %},{% endif %}{% endfor %}"></submit-vote-form>
+
+<script src="https://cdn.jsdelivr.net/npm/node-forge@1/dist/forge.min.js"></script>
+<script src="{% static "voting/submit_vote.js" %}"></script>
 {% endblock %}

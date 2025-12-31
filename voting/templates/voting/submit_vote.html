@@ -1,11 +1,10 @@
 {% extends "base.html" %}
+{% load static %}
+
 {% block content %}
-<h2>Submit Vote</h2>
-<form method="POST">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <p>
-        <input type="submit" value="Submit Vote">
-    </p>
-</form>
+<submit-vote-form uuid="{{ vote.uuid }}"></submit-vote-form>
+
+<script src="https://cdn.jsdelivr.net/npm/node-forge@1/dist/forge.min.js"></script>
+<script>const VOTE_UUID = "{{ vote.uuid }}";</script>
+<script src="{% static "voting/submit_vote.js" %}"></script>
 {% endblock %}
