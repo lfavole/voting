@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% load i18n %}
+
+{% block content-class %}hero is-primary{% endblock content-class %}
 {% block content %}
-<h2>{% trans "Welcome to the Secure Voting System" %}</h2>
-<div>
-    <ul>
-        <li><a href="{% url "submit_list" %}">{% trans "Submit Vote" %}</a></li>
-    </ul>
+<div class="hero-body">
+    <h1 class="title">{% trans "Welcome to the Secure Voting System" %}</h1>
+    <p>{% trans "This platform allows you to securely submit and view votes for various elections." %}</p>
+    <p>{% trans "Please use the navigation bar to submit your vote or view election results." %}</p>
 </div>
 {% endblock %}

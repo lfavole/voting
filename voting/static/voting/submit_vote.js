@@ -1,6 +1,7 @@
 function createForm(formSpec, submitButton) {
     const form = document.createElement("form");
     const table = document.createElement("table");
+    table.className = "table is-bordered";
     form.appendChild(table);
 
     // Row for choices labels (if needed)
@@ -48,6 +49,7 @@ function createForm(formSpec, submitButton) {
             fieldSpec.choices.forEach(choice => {
                 const choiceTd = document.createElement("td");
                 const choiceLabel = document.createElement("label");
+                choiceLabel.className = "radio";
                 const choiceInput = document.createElement("input");
                 choiceInput.type = "radio";
                 choiceInput.name = fieldName;
@@ -61,6 +63,7 @@ function createForm(formSpec, submitButton) {
             });
         } else {
             const input = document.createElement("input");
+            input.className = "input";
             input.type = "text";
             input.name = fieldName;
             input.id = fieldName;
@@ -122,85 +125,37 @@ function createForm(formSpec, submitButton) {
     return form;
 }
 
+function safeStringify(obj) {
+    function sortObject(obj) {
+        if (obj === null || typeof obj !== 'object')
+            return obj;
+
+        if (Array.isArray(obj))
+            return obj.map(sortObject);
+
+        return Object.keys(obj).sort().reduce((acc, key) => (acc[key] = sortObject(obj[key]), acc), {});
+    }
+    return JSON.stringify(obj, (_, obj) => sortObject(obj));
+}
+
 class SubmitVoteForm extends HTMLElement {
     constructor() {
         super();
-        // Support multiple comma-separated vote UUIDs.
-        this.voteIds = this.getAttribute("uuid").split(",").map(s => s.trim()).filter(x => x);
-        this.attachShadow({ mode: "open" });
+        this.userId = this.getAttribute("user");
 
         // Create container structure
         const wrapper = document.createElement("div");
         wrapper.className = "vote-wrapper";
-
-        // Controls: download button (always present)
-        const controlRow = document.createElement("p");
-        controlRow.className = "vote-controls";
-
-        const downloadBtn = document.createElement("button");
-        downloadBtn.type = "button";
-        downloadBtn.textContent = this.voteIds.length > 1 ? "Télécharger bulletins" : "Télécharger bulletin";
-        downloadBtn.addEventListener("click", () => this.downloadBallots());
-        controlRow.appendChild(downloadBtn);
-
-        const uploadBtn = document.createElement("button");
-        uploadBtn.type = "button";
-        uploadBtn.textContent = "Charger bulletins";
-        uploadBtn.addEventListener("click", () => this.uploadBallots());
-        controlRow.appendChild(uploadBtn);
-
-        wrapper.appendChild(controlRow);
-
-        const style = document.createElement("style");
-        style.textContent = `
-            table {
-                width: 100%;
-                text-align: center;
-            }
-            tr:nth-child(odd) { background: #f9f9f9; }
-            th, td {
-                padding: 0.5rem;
-                border-bottom: 1px solid #e1e1e1;
-            }
-            th {
-                background: #f3f4f6;
-            }
-            .vote-wrapper {
-                max-width: 600px;
-                margin: 2rem auto;
-                padding: 2rem;
-                background: #ffffff;
-                border: 1px solid #e1e1e1;
-                border-radius: 8px;
-                font-family: system-ui, -apple-system, sans-serif;
-            }
-            .vote-wrapper p:first-child { margin-top: 0; }
-            .vote-wrapper p:last-child { margin-bottom: 0; }
-            .status-box {
-                padding: 1rem;
-                border-radius: 4px;
-                border: 1px solid black;
-            }
-            /* États de la boîte de statut */
-            .status-box.info { background: #e3f2fd; color: #0d47a1; border-color: #bbdefb; }
-            .status-box.success { background: #e8f5e9; color: #1b5e20; border-color: #c8e6c9; }
-            .status-box.error { background: #ffebee; color: #b71c1c; border-color: #ffcdd2; }
-            .status-box.warning { background: #fffde7; color: #f57f17; border-color: #fff9c4; }
-            .status-box.warning button { background: #f57f17; color: #fffde7; }
-
-            #form-fields p { margin-bottom: 1rem; border-bottom: 1px solid #f0f0f0; padding-bottom: 0.5rem; }
-            button, input[type=button] { padding: 0.6rem 1.2rem; border: none; border-radius: 4px; cursor: pointer; }
-            .btn-success { background: #059669; color: white; }
-            .btn-submit { background: #2563eb; }
-            .btn-submit:disabled { background: #94a3b8; }
-            button + button { margin-left: 1rem; }
-            code { background: #f1f5f9; padding: 0.2rem; border-radius: 4px; word-break: break-all; font-size: 0.85rem; }
-        `;
-        this.shadowRoot.appendChild(style);
-
+        this.appendChild(wrapper);
         this.wrapper = wrapper;
 
-        this.shadowRoot.appendChild(wrapper);
+        const anonymousMessageContainer = document.createElement("p");
+        anonymousMessageContainer.className = "block";
+        const anonymousMessage = document.createElement("span");
+        anonymousMessage.className = "tag";
+        anonymousMessage.textContent = this.userId ? "Connecté" : "Session anonyme";
+        anonymousMessageContainer.appendChild(anonymousMessage);
+        wrapper.appendChild(anonymousMessageContainer);
 
         this.currentElement = null;
         this.introDismissed = false;
@@ -208,6 +163,16 @@ class SubmitVoteForm extends HTMLElement {
         this.formSpecs = {};
 
         this.statusOrder = ["", "INITIAL", "SIGNED", "TO_BE_SUBMITTED", "SUBMITTED"];
+
+        // Allow dropping ballot files onto the form
+        this.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+        });
+        this.addEventListener("drop", async (e) => {
+            e.preventDefault();
+            await this.uploadBallotFiles(e.dataTransfer.files);
+        });
     }
 
     connectedCallback() {
@@ -218,43 +183,183 @@ class SubmitVoteForm extends HTMLElement {
         })();
     }
 
-    async engine(voteId) {
+    async displayBallotsList() {
+        function createFontAwesomeElement(iconClass) {
+            const iconElem = document.createElement("i");
+            iconElem.className = iconClass;
+            return iconElem;
+        }
+
+        let ballotsListContainer = document.createElement("div");
+
+        let ballotsList = document.createElement("ul");
+        ballotsListContainer.appendChild(ballotsList);
+        this.ballotsListContainer?.remove();
+        this.ballotsListContainer = ballotsListContainer;
+
+        for (const voteToken of this.voteTokens) {
+            const ballot = this.getBallot(voteToken);
+            const voteId = ballot.voteId;
+            const li = document.createElement("li");
+            li.className = "dropdown is-block my-2";
+
+            const voteName = document.createElement("button");
+            voteName.className = "dropdown-trigger button";
+            voteName.textContent = this.formSpecs[voteId].title || "Vote " + voteId;
+            voteName.addEventListener("click", () => li.classList.toggle("is-active"));
+            // close when clicking outside
+            document.addEventListener("click", () => li.classList.remove("is-active"));
+            li.addEventListener("click", (e) => e.stopPropagation());
+            li.appendChild(voteName);
+
+            const statusTag = document.createElement("span");
+            const status = ballot.status || "";
+            const [text, className] = (() => {
+                switch (status) {
+                    case "": return ["Non soumis", "light"];
+                    case "INITIAL": return ["Prêt à signer", "info"];
+                    case "SIGNED": return ["Signé", "info"];
+                    case "TO_BE_SUBMITTED": return ["À envoyer", "info"];
+                    case "SUBMITTED": return ["Envoyé", "success"];
+                    default: return ["Statut inconnu", "light"];
+                }
+            })();
+            statusTag.textContent = text;
+            statusTag.className = "tag ml-2 is-" + className;
+            voteName.appendChild(statusTag);
+
+            const [canVote, canVoteReason] = this.formSpecs[voteId].can_vote;
+            if (!canVote && canVoteReason == "ended") {
+                const canVoteTag = document.createElement("span");
+                canVoteTag.textContent = "Vote clos";
+                canVoteTag.className = "tag ml-2 is-info";
+                voteName.appendChild(canVoteTag);
+            }
+            if (!canVote && this.statusOrder.indexOf(status) < this.statusOrder.indexOf(canVoteReason == "user" ? "SIGNED" : "SUBMITTED")) {
+                const canVoteTag = document.createElement("span");
+                canVoteTag.textContent = "Impossible de voter !";
+                canVoteTag.className = "tag ml-2 is-danger";
+                voteName.appendChild(canVoteTag);
+            }
+
+            const dropdownMenu = document.createElement("div");
+            dropdownMenu.className = "dropdown-menu";
+            li.appendChild(dropdownMenu);
+
+            const dropdownContent = document.createElement("div");
+            dropdownContent.className = "dropdown-content";
+            dropdownMenu.appendChild(dropdownContent);
+
+            // download button
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "dropdown-item";
+            downloadBtn.appendChild(createFontAwesomeElement("fas fa-download"));
+            downloadBtn.appendChild(document.createTextNode(" Télécharger le bulletin"));
+            downloadBtn.addEventListener("click", () => {
+                // download only this ballot
+                const key = `ballot_${voteToken}`;
+                const raw = localStorage.getItem(key);
+                if (!raw) {
+                    alert("Aucun bulletin local trouvé pour cet UUID.");
+                    return;
+                }
+                const blob = new Blob([raw], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                const filename = `ballot_${voteToken}_${new Date().toISOString().slice(0,10)}.json`;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            });
+            dropdownContent.appendChild(downloadBtn);
+
+            // delete button
+            const deleteBtn = document.createElement("button");
+            deleteBtn.className = "dropdown-item";
+            deleteBtn.appendChild(createFontAwesomeElement("fas fa-xmark"));
+            deleteBtn.appendChild(document.createTextNode(" Supprimer le bulletin"));
+            deleteBtn.addEventListener("click", async () => {
+                if (confirm("Confirmez-vous la suppression de ce bulletin local ?")) {
+                    localStorage.removeItem(`ballot_${voteToken}`);
+                    li.remove();
+                    await this.runEngineForAll();
+                }
+            });
+            dropdownContent.appendChild(deleteBtn);
+
+            ballotsList.appendChild(li);
+        }
+
+        this.wrapper.appendChild(ballotsListContainer);
+
+        return ballotsListContainer;
+    }
+
+    async engine(voteToken) {
         this.currentElement?.remove();
-        let ballot = this.getBallot(voteId);
+        let ballot = voteToken ? this.getBallot(voteToken) : {};
+        // if any of the steps return true, it means that the step isn't done yet
         switch (ballot.status || "") {
             case "":
-                if (!this.introDismissed)
-                    this.currentElement = await this.displayIntro();
-                else
-                    this.currentElement = await this.createForms();
-                break;
+                if (!this.introDismissed && this.voteTokens.length)
+                    return await this.displayIntro();
+                return await this.createForms();
             case "INITIAL":
-                this.currentElement = await this.blindAndSign(voteId);
-                break;
+                return await this.blindAndSign(voteToken);
             case "SIGNED":
-                this.currentElement = await this.showFinalOptions();
-                break;
+                return await this.showFinalOptions();
             case "TO_BE_SUBMITTED":
-                this.currentElement = await this.submitBallot(voteId);
-                break;
+                return await this.submitBallot(voteToken);
             case "SUBMITTED":
-                this.currentElement = await this.displaySuccess();
-                break;
+                return await this.displaySuccess();
         }
     }
 
     async runEngineForAll(init) {
+        // Support multiple comma-separated vote UUIDs.
+        this.voteIds = this.getAttribute("uuid").split(",").map(s => s.trim()).filter(x => x);
+        this.voteTokens = new Set();
+        // also add the ones from localStorage
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith("ballot_"))
+                this.voteTokens.add(this.getBallot(key.slice("ballot_".length)).token);
+        }
+        // convert to list
+        this.voteTokens = [...this.voteTokens];
+        this.yourVotes = [];
+        try {
+            this.yourVotes = JSON.parse(localStorage.getItem("your_votes")) || [];
+        } catch(e) {}
+        // create the misssing voteIds
+        for (const voteId of this.voteIds) {
+            const alreadyExists = this.yourVotes.some(voteToken => this.getBallot(voteToken).voteId == voteId);
+            if (alreadyExists) continue;
+            const newToken = forge.util.encode64(forge.random.getBytesSync(24));
+            this.voteTokens.push(newToken);
+            this.updateStorage(newToken, { voteId: voteId, token: newToken });
+            this.yourVotes.push(newToken);
+        }
+        localStorage.setItem("your_votes", JSON.stringify(this.yourVotes));
+
         this.errorsAt = {};
         try {
-            if (!Object.keys(this.formSpecs).length)
-                await this.loadFormSpecs();
+            this.currentElement?.remove();
+            await this.loadFormSpecs();
             while (true) {
-                let toProcess = this.voteIds.slice().sort((a, b) => {
+                let toProcess = this.voteTokens.slice().sort((a, b) => {
                     const statusA = this.getBallot(a).status || "";
                     const statusB = this.getBallot(b).status || "";
                     return this.statusOrder.indexOf(statusA) - this.statusOrder.indexOf(statusB);
                 });
-                if (toProcess.length === 0) return;
+                if (toProcess.length === 0) {
+                    // display the "no votes" message
+                    await this.engine();
+                    return;
+                }
                 // Run all the votes with the earliest status
                 toProcess = toProcess.filter(id => {
                     return (this.getBallot(id).status || "") == (this.getBallot(toProcess[0]).status || "");
@@ -265,30 +370,32 @@ class SubmitVoteForm extends HTMLElement {
                 }
                 // If all of them are done, continue to the next step
                 let stop = false;
-                for (const voteId of toProcess) {
+                for (const voteToken of toProcess) {
                     try {
-                        await this.engine(voteId);
+                        if (await this.engine(voteToken)) {
+                            stop = true;
+                            break;
+                        }
                     } catch(e) {
-                        this.errorsAt[voteId] = this.getBallot(voteId).status || "";
+                        this.errorsAt[voteToken] = this.getBallot(voteToken).status || "";
                         throw e;
-                    }
-                    if (this.shadowRoot.contains(this.currentElement)) {
-                        stop = true;
-                        break;
                     }
                 }
                 if (stop)
                     break;
             }
-        } catch (e) {
+        } catch(e) {
+            this.currentElement?.remove();
             console.error(e);
 
             let messageContainer = document.createElement("p");
-            messageContainer.className = "status-box error";
+            messageContainer.className = "notification is-danger";
             let errorText = e.constructor == Error ? e.message : e + "";
             messageContainer.textContent = init ? "Erreur lors de l'initialisation : " + errorText : "Interrompu : " + errorText + ". Rechargez pour reprendre.";
 
             this.wrapper.appendChild(messageContainer);
+        } finally {
+            this.displayBallotsList();
         }
     }
 
@@ -297,15 +404,20 @@ class SubmitVoteForm extends HTMLElement {
 
         // List of ballots
         let introTextContainer = document.createElement("p");
-        introTextContainer.className = "status-box info";
+        introTextContainer.className = "notification is-info";
         introTextContainer.textContent = "Vous allez voter pour les élections suivantes :";
         introContainer.appendChild(introTextContainer);
 
         let ballotsList = document.createElement("ul");
         introTextContainer.appendChild(ballotsList);
 
-        for (const voteId of this.voteIds) {
-            const ballot = this.getBallot(voteId);
+        // let electionsToVote = [...new Set([
+        //     ...this.voteTokens.map(voteToken => this.getBallot(voteToken).voteId),
+        //     ...this.voteIds,
+        // ])];
+        for (const voteToken of this.voteTokens) {
+            const ballot = this.getBallot(voteToken);
+            const voteId = ballot.voteId;
             if (this.statusOrder.indexOf(ballot.status || "") > 0)
                 continue;
             const li = document.createElement("li");
@@ -315,7 +427,7 @@ class SubmitVoteForm extends HTMLElement {
 
         // Warning container
         let warningContainer = document.createElement("p");
-        warningContainer.className = "status-box warning";
+        warningContainer.className = "notification is-warning";
 
         let warningTitle = document.createElement("strong");
         warningTitle.textContent = "Attention : ";
@@ -329,9 +441,19 @@ class SubmitVoteForm extends HTMLElement {
         warningContainer.appendChild(warningAcceptContainer);
 
         let warningAccept = document.createElement("button");
-        warningAccept.type = "button";
+        warningAccept.className = "button";
         warningAccept.textContent = "J'ai compris";
         warningAccept.addEventListener("click", () => {
+            // for each vote in electionsToVote that doesn't have an associated entry in voteTokens,
+            // create one with a random token
+            // for (const voteId of electionsToVote) {
+            //     const alreadyExists = this.voteTokens.some(voteToken => this.getBallot(voteToken).voteId == voteId);
+            //     if (alreadyExists) continue;
+            //     const newToken = forge.util.encode64(forge.random.getBytesSync(24));
+            //     this.voteTokens.push(newToken);
+            //     this.updateStorage(newToken, { voteId: voteId, token: newToken });
+            // }
+
             this.introDismissed = true;
             this.runEngineForAll();
         });
@@ -340,52 +462,61 @@ class SubmitVoteForm extends HTMLElement {
         introContainer.appendChild(warningContainer);
 
         this.wrapper.appendChild(introContainer);
+        this.currentElement = introContainer;
 
-        return introContainer;
+        return true;
     }
 
     async loadFormSpecs() {
         let messageContainer = document.createElement("p");
-        messageContainer.className = "status-box info";
+        messageContainer.className = "notification is-info";
         messageContainer.textContent = "Chargement des formulaires...";
         this.wrapper.appendChild(messageContainer);
+        this.currentElement = messageContainer;
 
-        try {
-            this.formSpecs = {};
-            for (let voteId of this.voteIds) {
-                const resp = await fetch(`/submit-vote/${voteId}`, { headers: { Accept: "application/json" } });
-                if (!resp.ok) throw new Error(`Impossible de récupérer la spécification du formulaire pour le vote ${voteId}`);
-                this.formSpecs[voteId] = await resp.json();
-            }
-        } finally {
-            messageContainer.remove();
+        this.formSpecs = {};
+        for (let voteToken of this.voteTokens) {
+            const ballot = this.getBallot(voteToken);
+            const voteId = ballot.voteId;
+            if (this.formSpecs[voteId]) continue;
+            const resp = await fetch(`/submit-vote/${voteId}`, { headers: { Accept: "application/json" } });
+            if (!resp.ok) throw new Error(`Impossible de récupérer la spécification du formulaire pour le vote ${voteId}`);
+            this.formSpecs[voteId] = await resp.json();
         }
     }
 
     async createForms() {
-        let formsContainer = document.createElement("div");
-        this.wrapper.appendChild(formsContainer);
+        if (!this.voteTokens.length) {
+            let noVotesMessage = document.createElement("p");
+            noVotesMessage.textContent = "Aucun vote à soumettre.";
+            this.wrapper.appendChild(noVotesMessage);
+            return noVotesMessage;
+        }
 
-        for (let voteId of this.voteIds) {
+        let formsContainer = document.createElement("div");
+
+        for (let voteToken of this.voteTokens) {
+            const existingBallot = this.getBallot(voteToken);
+            const voteId = existingBallot.voteId;
+            // restore the previous state if any
+            if (this.statusOrder.indexOf(existingBallot.status || "") > 0) {
+                // const alreadyVotedMessage = document.createElement("p");
+                // alreadyVotedMessage.textContent = "(Déjà voté)";
+                // section.appendChild(alreadyVotedMessage);
+
+                // formsContainer.appendChild(section);
+                continue;
+            }
+
             const section = document.createElement("section");
-            section.className = "vote-section";
+            section.className = "block";
 
             const formSpec = this.formSpecs[voteId];
 
-            const h = document.createElement("h3");
+            const h = document.createElement("h2");
+            h.className = "title";
             h.textContent = `Vote: ${formSpec.title || voteId}`;
             section.appendChild(h);
-
-            // restore the previous state if any
-            const existingBallot = this.getBallot(voteId);
-            if (this.statusOrder.indexOf(existingBallot.status || "") > 0) {
-                const alreadyVotedMessage = document.createElement("p");
-                alreadyVotedMessage.textContent = "(Déjà voté)";
-                section.appendChild(alreadyVotedMessage);
-
-                formsContainer.appendChild(section);
-                continue;
-            }
 
             const form = createForm(formSpec);
             section.appendChild(form);
@@ -431,10 +562,8 @@ class SubmitVoteForm extends HTMLElement {
                         voteData[pair[0]] = pair[1];
                 }
 
-                this.updateStorage(voteId, { data: voteData });
+                this.updateStorage(voteToken, { data: voteData });
             });
-            if (!this.getBallot(voteId).token)
-                this.updateStorage(voteId, { token: forge.util.encode64(forge.random.getBytesSync(24)) });
             form.addEventListener("submit", e => e.preventDefault());
             formsContainer.appendChild(section);
         }
@@ -443,32 +572,36 @@ class SubmitVoteForm extends HTMLElement {
         let submitZone = document.createElement("div");
 
         const submitBtn = document.createElement("button");
+        submitBtn.className = "button";
         submitBtn.type = "button";
         submitBtn.textContent = "Envoyer";
         submitBtn.addEventListener("click", async () => {
             // if there are ballots with status 0 (not yet submitted), set them to INITIAL
-            this.voteIds.forEach(voteId => {
-                const ballot = this.getBallot(voteId);
+            this.voteTokens.forEach(voteToken => {
+                const ballot = this.getBallot(voteToken);
                 if (!ballot.status)
-                    this.updateStorage(voteId, { status: "INITIAL" });
+                    this.updateStorage(voteToken, { status: "INITIAL" });
             });
             // then run the engine for all ballots until no further automatic progress can be made
             await this.runEngineForAll();
         });
         submitZone.appendChild(submitBtn);
         formsContainer.appendChild(submitBtn);
-        return formsContainer;
+
+        this.wrapper.appendChild(formsContainer);
+        this.currentElement = formsContainer;
+        return true;
     }
 
-    async getPublicKey(voteId) {
-        let stepContainer = document.createElement("div");
-
+    async getPublicKey(voteToken) {
+        const ballot = this.getBallot(voteToken);
+        const voteId = ballot.voteId;
         let messageContainer = document.createElement("p");
-        messageContainer.className = "status-box info";
+        messageContainer.className = "notification is-info";
         messageContainer.textContent = "Étape 1/3 : Récupération des clés sécurisées...";
-        stepContainer.appendChild(messageContainer);
 
-        this.wrapper.appendChild(stepContainer);
+        this.wrapper.appendChild(messageContainer);
+        this.currentElement = messageContainer;
 
         try {
             const res = await fetch(`/vote/${voteId}/public-key`);
@@ -478,64 +611,58 @@ class SubmitVoteForm extends HTMLElement {
             const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("test"));
             const smallHash = Array.from(new Uint8Array(hashBuffer).slice(0, 4)).map((b) => b.toString(16).padStart(2, "0")).join("");
 
-            const expectedHash = this.getBallot(voteId).publicKeyHash;
+            const expectedHash = ballot.publicKeyHash;
 
             if (expectedHash && expectedHash != smallHash)
                 throw new Error("La clé publique a changé depuis votre dernière visite. Ceci peut indiquer une attaque de type 'man-in-the-middle'. Veuillez contacter l'administrateur du vote.");
 
-            this.updateStorage(voteId, { publicKeyHash: smallHash });
+            this.updateStorage(voteToken, { publicKeyHash: smallHash });
 
             return pem;
         } finally {
-            stepContainer.remove();
+            this.currentElement.remove();
         }
     }
 
-    async blindAndSign(voteId) {
-        const publicKeyPem = await this.getPublicKey(voteId);
-
-        let stepContainer = document.createElement("div");
+    async blindAndSign(voteToken) {
+        const publicKeyPem = await this.getPublicKey(voteToken);
 
         let messageContainer = document.createElement("p");
-        messageContainer.className = "status-box info";
+        messageContainer.className = "notification is-info";
         messageContainer.textContent = "Étape 2/3 : Signature anonyme du bulletin...";
-        stepContainer.appendChild(messageContainer);
 
-        this.wrapper.appendChild(stepContainer);
+        this.wrapper.appendChild(messageContainer);
+        this.currentElement = messageContainer;
 
-        try {
-            const ballot = this.getBallot(voteId);
-            const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
+        const ballot = this.getBallot(voteToken);
+        const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
 
-            const jsonPayload = JSON.stringify(ballot.data || {}, Object.keys(ballot.data || {}).sort(), 0);
-            const messageContent = `${ballot.token}:${jsonPayload}`;
+        const jsonPayload = safeStringify(ballot.data || {});
+        const messageContent = `${ballot.token}:${jsonPayload}`;
 
-            const md = forge.md.sha256.create();
-            md.update(messageContent);
-            const m = new forge.jsbn.BigInteger(md.digest().toHex(), 16);
-            const r = new forge.jsbn.BigInteger(forge.util.bytesToHex(forge.random.getBytesSync(32)), 16).mod(publicKey.n);
-            const blinded = m.multiply(r.modPow(publicKey.e, publicKey.n)).mod(publicKey.n);
-            const blindedB64 = forge.util.encode64(forge.util.hexToBytes(blinded.toString(16)));
+        const md = forge.md.sha256.create();
+        md.update(messageContent);
+        const m = new forge.jsbn.BigInteger(md.digest().toHex(), 16);
+        const r = new forge.jsbn.BigInteger(forge.util.bytesToHex(forge.random.getBytesSync(32)), 16).mod(publicKey.n);
+        const blinded = m.multiply(r.modPow(publicKey.e, publicKey.n)).mod(publicKey.n);
+        const blindedB64 = forge.util.encode64(forge.util.hexToBytes(blinded.toString(16)));
 
-            const signRes = await fetch(`/vote/${voteId}/sign`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-CSRFToken": this.getCsrf() },
-                body: JSON.stringify({ blinded_message: blindedB64 }),
-            });
-            if (!signRes.ok) throw new Error("Le serveur a refusé la signature : " + (await signRes.json()).error);
-            const { signature: sigBlindB64 } = await signRes.json();
+        const signRes = await fetch(`/vote/${ballot.voteId}/sign`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": this.getCsrf() },
+            body: JSON.stringify({ blinded_message: blindedB64 }),
+        });
+        if (!signRes.ok) throw new Error("Le serveur a refusé la signature : " + (await signRes.json()).error);
+        const { signature: sigBlindB64 } = await signRes.json();
 
-            const sigBlindInt = new forge.jsbn.BigInteger(forge.util.bytesToHex(forge.util.decode64(sigBlindB64)), 16);
-            const rInv = r.modInverse(publicKey.n);
-            const finalSigInt = sigBlindInt.multiply(rInv).mod(publicKey.n);
-            const finalSigB64 = forge.util.encode64(forge.util.hexToBytes(finalSigInt.toString(16)));
+        const sigBlindInt = new forge.jsbn.BigInteger(forge.util.bytesToHex(forge.util.decode64(sigBlindB64)), 16);
+        const rInv = r.modInverse(publicKey.n);
+        const finalSigInt = sigBlindInt.multiply(rInv).mod(publicKey.n);
+        const finalSigB64 = forge.util.encode64(forge.util.hexToBytes(finalSigInt.toString(16)));
 
-            this.checkSignatureMath(publicKey, messageContent, finalSigInt, finalSigB64);
+        this.checkSignatureMath(publicKey, messageContent, finalSigInt, finalSigB64);
 
-            this.updateStorage(voteId, { signature: finalSigB64, status: "SIGNED" });
-        } finally {
-            stepContainer.remove();
-        }
+        this.updateStorage(voteToken, { signature: finalSigB64, status: "SIGNED" });
     }
 
     checkSignatureMath(pubKey, msg, sigInt /*, sigB64 */) {
@@ -551,22 +678,21 @@ class SubmitVoteForm extends HTMLElement {
         let stepContainer = document.createElement("div");
 
         let messageContainer = document.createElement("p");
-        messageContainer.className = "status-box info";
-        messageContainer.textContent = "Vos bulletins sont signés et prêts.";
+        messageContainer.className = "notification is-info";
+        messageContainer.textContent = "Vos bulletins sont signés et prêts. Ils seront envoyés sans lien avec vos informations de connexion. Pour une sécurité maximale, téléchargez vos bulletins puis rendez-vous sur un autre appareil depuis un autre lieu pour les envoyer.";
         stepContainer.appendChild(messageContainer);
 
-        this.wrapper.appendChild(stepContainer);
-
         let tokenDisplay = document.createElement("div");
-        tokenDisplay.textContent = `Vos jetons de vote sont : `;
+        tokenDisplay.className = "block";
+        tokenDisplay.textContent = "Vos jetons de vote sont :";
 
         let tokenList = document.createElement("ul");
         tokenDisplay.appendChild(tokenList);
 
-        for (const voteId of this.voteIds) {
-            const ballot = this.getBallot(voteId);
+        for (const voteToken of this.voteTokens) {
+            const ballot = this.getBallot(voteToken);
             const li = document.createElement("li");
-            li.textContent = `${this.formSpecs[voteId].title || "Vote " + voteId} : `;
+            li.textContent = `${this.formSpecs[ballot.voteId].title || "Vote " + ballot.voteId} : `;
             const codeElem = document.createElement("code");
             codeElem.textContent = ballot.token;
             li.appendChild(codeElem);
@@ -576,129 +702,151 @@ class SubmitVoteForm extends HTMLElement {
         stepContainer.appendChild(tokenDisplay);
 
         let buttonsLine = document.createElement("div");
+        buttonsLine.className = "buttons";
         stepContainer.appendChild(buttonsLine);
 
         const resendBtn = document.createElement("button");
-        resendBtn.className = "btn-success";
+        resendBtn.className = "button is-success";
         resendBtn.textContent = "Envoyer mes votes";
         resendBtn.addEventListener("click", () => {
-            for (let voteId of this.voteIds) {
-                this.updateStorage(voteId, { status: "TO_BE_SUBMITTED" });
+            for (let voteToken of this.voteTokens) {
+                if (this.statusOrder.indexOf(this.getBallot(voteToken).status || "") < this.statusOrder.indexOf("SUBMITTED"))
+                    this.updateStorage(voteToken, { status: "TO_BE_SUBMITTED" });
             }
             this.runEngineForAll();
         });
         buttonsLine.appendChild(resendBtn);
 
         const resetBtn = document.createElement("button");
+        resetBtn.className = "button is-danger";
         resetBtn.textContent = "Supprimer mes bulletins locaux";
-        resetBtn.addEventListener("click", () => {
+        resetBtn.addEventListener("click", async () => {
             if (confirm("ATTENTION : Ceci supprimera vos bulletins localement. Si vous n'avez pas encore envoyé vos votes, vous perdrez la possibilité de le faire. Confirmez-vous la suppression ?")) {
-                this.voteIds.forEach(id => {
+                for (const id of this.voteTokens) {
                     localStorage.removeItem(`ballot_${id}`);
-                });
+                    await this.runEngineForAll();
+                }
                 location.reload();
             }
         });
         buttonsLine.appendChild(resetBtn);
 
-        return stepContainer;
+        this.wrapper.appendChild(stepContainer);
+        this.currentElement = stepContainer;
+        return true;
     }
 
-    async submitBallot(voteId, notFound) {
-        let stepContainer = document.createElement("div");
-
+    async submitBallot(voteToken, notFound) {
         let messageContainer = document.createElement("p");
-        messageContainer.className = "status-box info";
+        messageContainer.className = "notification is-info";
         messageContainer.textContent = (notFound ? "Le bulletin n'a pas été trouvé dans l'urne. " : "") + "Étape 3/3 : Dépôt du bulletin dans l'urne...";
-        stepContainer.appendChild(messageContainer);
 
-        this.wrapper.appendChild(stepContainer);
+        this.wrapper.appendChild(messageContainer);
+        this.currentElement = messageContainer;
 
-        try {
-            const ballot = this.getBallot(voteId);
+        const ballot = this.getBallot(voteToken);
 
-            const formData = new FormData();
-            formData.append("csrfmiddlewaretoken", this.getCsrf());
-            formData.append("token", ballot.token);
-            formData.append("signature", ballot.signature);
-            const jsonPayload = JSON.stringify(ballot.data || {}, Object.keys(ballot.data || {}).sort(), 0);
-            formData.append("data", jsonPayload);
+        const formData = new FormData();
+        formData.append("csrfmiddlewaretoken", this.getCsrf());
+        formData.append("token", ballot.token);
+        formData.append("signature", ballot.signature);
+        const jsonPayload = safeStringify(ballot.data || {});
+        formData.append("data", jsonPayload);
 
-            const res = await fetch(`/vote/${voteId}/submit`, { method: "POST", body: formData });
-            if (!res.ok) throw new Error("Urne fermée ou bulletin invalide");
+        const res = await fetch(`/vote/${ballot.voteId}/submit`, { method: "POST", body: formData, credentials: "omit" });
+        if (!res.ok) throw new Error("Urne fermée ou bulletin invalide");
 
-            this.updateStorage(voteId, { status: "SUBMITTED" });
-        } finally {
-            stepContainer.remove();
-        }
+        this.updateStorage(voteToken, { status: "SUBMITTED" });
     }
 
     async displaySuccess() {
-        let stepContainer = document.createElement("div");
-
         let messageContainer = document.createElement("p");
-        messageContainer.className = "status-box success";
+        messageContainer.className = "notification is-success";
         messageContainer.textContent = "Vérification du dépôt des bulletins...";
-        stepContainer.appendChild(messageContainer);
 
-        this.wrapper.appendChild(stepContainer);
+        this.wrapper.appendChild(messageContainer);
+        this.currentElement = messageContainer;
 
         let i = 1;
-        for (let voteId of this.voteIds) {
-            const ballot = this.getBallot(voteId);
-            let res = await fetch(`/data/ballots/${voteId}/${ballot.token}`);
+        for (let voteToken of this.voteTokens) {
+            const ballot = this.getBallot(voteToken);
+            let res = await fetch(`/data/ballots/${ballot.voteId}/${ballot.token}`, {credentials: "omit"});
             if (!res.ok) {
-                this.updateStorage(voteId, { status: "TO_BE_SUBMITTED" });
-                throw new Error("Bulletin non trouvé pour l'élection " + this.formSpecs[voteId].title);
+                this.updateStorage(voteToken, { status: "TO_BE_SUBMITTED" });
+                throw new Error(`Bulletin non trouvé pour l'élection ${this.formSpecs[ballot.voteId].title}`);
             }
             let data = await res.json();
             let valid = (
-                JSON.stringify(data, Object.keys(data).sort(), 0) ===
-                JSON.stringify(ballot.data || {}, Object.keys(ballot.data || {}).sort(), 0)
+                safeStringify(data) ===
+                safeStringify(ballot.data || {})
             );
             if (!valid) {
-                this.updateStorage(voteId, { status: "TO_BE_SUBMITTED" });
-                throw new Error("Le bulletin dans l'urne ne correspond pas à celui que vous avez envoyé.");
+                this.updateStorage(voteToken, { status: "TO_BE_SUBMITTED" });
+                throw new Error(`Le bulletin dans l'urne pour l'élection ${this.formSpecs[ballot.voteId].title} ne correspond pas à celui que vous avez envoyé.`);
             }
-            messageContainer.textContent = "Vérification du dépôt des bulletins... " + i + "/" + this.voteIds.length + " OK";
+            // Vérifier la signature
+            if (!ballot.signature) {
+                this.updateStorage(voteToken, { status: "TO_BE_SUBMITTED" });
+                throw new Error(`Aucune signature trouvée pour le bulletin de l'élection ${this.formSpecs[ballot.voteId].title}.`);
+            }
+            const publicKeyPem = await this.getPublicKey(voteToken);
+            const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
+            const jsonPayload = safeStringify(ballot.data || {});
+            const messageContent = `${ballot.token}:${jsonPayload}`;
+            const sigInt = new forge.jsbn.BigInteger(forge.util.bytesToHex(forge.util.decode64(ballot.signature)), 16);
+            this.checkSignatureMath(publicKey, messageContent, sigInt, ballot.signature);
+            messageContainer.textContent = "Vérification du dépôt des bulletins... " + i + "/" + this.voteTokens.length + " OK";
             i++;
         }
 
-        messageContainer.textContent = "Votes enregistrés avec succès !";
+        messageContainer.remove();
 
-        let tokenDisplay = document.createElement("div");
-        tokenDisplay.textContent = `Jetons de vote : `;
+        const tokenDisplay = document.createElement("div");
+        tokenDisplay.className = "notification is-success";
 
-        let tokenList = document.createElement("ul");
+        const firstLine = document.createElement("h2");
+        firstLine.className = "title";
+        firstLine.textContent = "Votes enregistrés avec succès !";
+        tokenDisplay.appendChild(firstLine);
+
+        const secondLine = document.createElement("p");
+        secondLine.textContent = "Vos jetons de vote sont disponibles ci-dessous.";
+        tokenDisplay.appendChild(secondLine);
+
+        const thirdLine = document.createElement("p");
+        thirdLine.textContent = "Conservez précieusement ces jetons de vote, ils vous permettront de prouver que vous avez bien voté si nécessaire.";
+        tokenDisplay.appendChild(thirdLine);
+
+        const tokenList = document.createElement("ul");
         tokenDisplay.appendChild(tokenList);
 
-        for (const voteId of this.voteIds) {
-            const ballot = this.getBallot(voteId);
+        for (const voteToken of this.voteTokens) {
+            const ballot = this.getBallot(voteToken);
             const li = document.createElement("li");
-            li.textContent = `${this.formSpecs[voteId].title || "Vote " + voteId} : `;
+            li.textContent = `${this.formSpecs[ballot.voteId].title || "Vote " + ballot.voteId} : `;
             const codeElem = document.createElement("code");
             codeElem.textContent = ballot.token;
             li.appendChild(codeElem);
             tokenList.appendChild(li);
         }
 
-        stepContainer.appendChild(tokenDisplay);
-
-        return stepContainer;
+        this.wrapper.appendChild(tokenDisplay);
+        this.currentElement = tokenDisplay;
+        return true;
     }
 
-    updateStorage(voteId, data) {
+    updateStorage(voteToken, data) {
         let current = {};
-        const key = `ballot_${voteId}`;
+        const key = `ballot_${voteToken}`;
         try {
             current = JSON.parse(localStorage.getItem(key));
         } catch(e) {}
         localStorage.setItem(key, JSON.stringify({ ...current, ...data }));
     }
 
-    getBallot(voteId) {
+    getBallot(voteToken) {
         try {
-            return JSON.parse(localStorage.getItem(`ballot_${voteId}`)) || {};
+            return JSON.parse(localStorage.getItem(`ballot_${voteToken}`)) || {};
         } catch(e) {
             return {};
         }
@@ -709,7 +857,7 @@ class SubmitVoteForm extends HTMLElement {
 
     downloadBallots() {
         const results = [];
-        this.voteIds.forEach(id => {
+        this.voteTokens.forEach(id => {
             const key = `ballot_${id}`;
             const raw = localStorage.getItem(key);
             if (raw) {
@@ -729,7 +877,7 @@ class SubmitVoteForm extends HTMLElement {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        const filename = `ballots_${this.voteIds.join("_")}_${new Date().toISOString().slice(0,10)}.json`;
+        const filename = `ballots_${this.voteTokens.join("_")}_${new Date().toISOString().slice(0,10)}.json`;
         a.download = filename;
         document.body.appendChild(a);
         a.click();
@@ -742,23 +890,28 @@ class SubmitVoteForm extends HTMLElement {
         input.type = "file";
         input.accept = "application/json";
         input.addEventListener("change", async () => {
-            const file = input.files[0];
-            if (!file) return;
+            await this.uploadBallotFiles(input.files);
+        });
+        input.click();
+    }
+
+    async uploadBallotFiles(files) {
+        [...files].forEach(async (file) => {
             try {
                 const text = await file.text();
-                const data = JSON.parse(text);
+                let data = JSON.parse(text);
+                if (!Array.isArray(data))
+                    data = [data];
+                let count = 0;
                 for (var item of data) {
-                    if (this.voteIds.includes(item.vote_id)) {
-                        const key = `ballot_${item.vote_id}`;
-                        localStorage.setItem(key, JSON.stringify(item.ballot));
-                        count++;
-                    }
+                    localStorage.setItem(`ballot_${item.token}`, JSON.stringify(item));
+                    count++;
                 }
-                await this.loadFormSpecs();
-                this.runEngineForAll();
+                await this.runEngineForAll();
             } catch(e) {
+                console.error(e);
                 let messageContainer = document.createElement("p");
-                messageContainer.className = "status-box error";
+                messageContainer.className = "notification is-danger";
                 let errorText = e.constructor == Error ? e.message : e + "";
                 messageContainer.textContent = "Erreur lors de l'importation des bulletins : " + errorText;
 
@@ -767,7 +920,6 @@ class SubmitVoteForm extends HTMLElement {
                 setTimeout(() => messageContainer.remove(), 5000);
             }
         });
-        input.click();
     }
 }
 

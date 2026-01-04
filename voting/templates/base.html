@@ -4,39 +4,83 @@
 <head>
     <meta charset="UTF-8">
     <title>Secure Voting System</title>
-    <link rel="stylesheet" href="{% static 'style.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1/css/bulma.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7/css/all.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
     {% block extra_head %}{% endblock %}
 </head>
 <body>
-    <header>
-        <h1>Secure Voting System</h1>
-        <nav>
-            <ul>
-                <li><a href="{% url 'home' %}">Home</a></li>
-                {% if user.is_authenticated %}
-                    <li><form method="POST" action="{% url 'account_logout' %}">{% csrf_token %}<input type="submit" value="Logout"></form></li>
-                    {% if user.is_staff %}
-                        <li><a href="{% url 'admin:index' %}">Admin</a></li>
+    <nav class="navbar" x-data>
+        <div class="navbar-brand">
+            <a class="navbar-item" href="/">Secure Voting System</a>
+            <a role="button" class="navbar-burger">
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+            </a>
+        </div>
+        <div class="navbar-menu">
+            <div class="navbar-start">
+                <a class="navbar-item" href="{% url 'home' %}">Home</a>
+                <a class="navbar-item" href="{% url 'submit_list' %}">Submit Vote</a>
+                <a class="navbar-item" href="{% url 'help' %}">Help</a>
+            </div>
+            <div class="navbar-end">
+                <div class="navbar-item">
+                    {% if user.is_authenticated %}
+                        <form method="POST" action="{% url 'account_logout' %}">{% csrf_token %}<input class="button" type="submit" value="Logout"></form>
+                        {% if user.is_staff %}
+                            <a class="button" href="{% url 'admin:index' %}">Admin</a>
+                        {% endif %}
+                    {% else %}
+                        <a class="button" href="{% url 'account_login' %}">Login</a>
+                        <a class="button" href="{% url 'account_signup' %}">Sign Up</a>
                     {% endif %}
-                {% else %}
-                    <li><a href="{% url 'account_login' %}">Login</a></li>
-                    <li><a href="{% url 'account_signup' %}">Sign Up</a></li>
-                {% endif %}
-                <li><a href="{% url 'submit_list' %}">Submit Vote</a></li>
-                <li><a href="{% url 'help' %}">Help</a></li>
-            </ul>
-        </nav>
-    </header>
-    <ul class="messages">
-        {% for message in messages %}
-            <li>{{ message }}</li>
-        {% endfor %}
-    </ul>
-    <main>
+                </div>
+            </div>
+        </div>
+    </nav>
+    {% if messages %}
+        <div class="section">
+            {% for message in messages %}
+                <div class="notification">
+                    <button class="delete" x-data @click="$el.parentElement.remove()"></button>
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+    <main class="{% block content-class %}section{% endblock content-class %}">
         {% block content %}{% endblock %}
     </main>
-    <footer>
-        <small>&copy; 2025 Secure Voting System</small>
+    <footer class="footer">
+        <div class="content has-text-centered">
+            <p>&copy; 2025 Secure Voting System</p>
+        </div>
     </footer>
+    <script>
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    // Get all "navbar-burger" elements
+    const $navbarBurgers = [...document.querySelectorAll('.navbar-burger')];
+
+    // Add a click event on each of them
+    $navbarBurgers.forEach(el => {
+        el.addEventListener('click', () => {
+            // Get the target
+            const target = el.parentElement.nextElementSibling;
+
+            // Toggle the "is-active" class on both the "navbar-burger" and the "navbar-menu"
+            el.classList.toggle('is-active');
+            target.classList.toggle('is-active');
+        });
+    });
+
+});
+
+    </script>
 </body>
 </html>
