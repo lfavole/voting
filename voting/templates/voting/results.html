@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block extra_head %}
+<style type="x">
+    .progress-stack {
+        position: relative;
+        display: flex;
+        height: 2em;
+        width: 100%;
+        border-radius: 0.25em;
+        overflow: hidden;
+    }
+    .progress-stack::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        transform: translateX(-50%);
+        width: 2px;
+        background: black;
+    }
+</style>
+<style>
+    .votes-percentages {
+        height: calc(2 * var(--bulma-size-normal));
+        display: flex;
+    }
+    .votes-percentages div {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+    .votes-percentages div:nth-child(1) { background: #1a5f7a; color: white; } /* Très Bien */
+    .votes-percentages div:nth-child(2) { background: #159895; }               /* Bien */
+    .votes-percentages div:nth-child(3) { background: #54bab9; }               /* Assez Bien */
+    .votes-percentages div:nth-child(4) { background: #f7c04a; }               /* Passable */
+    .votes-percentages div:nth-child(5) { background: #ff8080; }               /* Insuffisant */
+    .votes-percentages div:nth-child(6) { background: #b70404; color: white; } /* À Rejeter */
+    .votes-percentages div:nth-child(7) { background: #888888; color: white; } /* Ne Sait Pas */
+    .with-needle {
+        position: relative;
+    }
+    .with-needle::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        transform: translateX(-50%);
+        width: calc(2 * var(--bulma-control-border-width));
+        background: var(--bulma-text);
+    }
+</style>
+{% endblock extra_head %}
+
+{% block content %}
+<h1 class="title">{% blocktranslate %}Results for {{ vote }}{% endblocktranslate %}</h1>
+{% for res in results %}
+    <h2 class="title is-2">{{ res.candidate }}</h2>
+    <p>
+        Mention Médiane : <strong>{{ res.median_grade }}</strong>
+        – p+ : <strong>{{ res.p_plus }} %</strong>
+        – p- : <strong>{{ res.p_moins }} %</strong>
+    </p>
+    <div class="progress votes-percentages with-needle">
+        <div style="width: {{ res.percentages.1|stringformat:".02f" }}%;">Très Bien</div>
+        <div style="width: {{ res.percentages.2|stringformat:".02f" }}%;">Bien</div>
+        <div style="width: {{ res.percentages.3|stringformat:".02f" }}%;">Assez Bien</div>
+        <div style="width: {{ res.percentages.4|stringformat:".02f" }}%;">Passable</div>
+        <div style="width: {{ res.percentages.5|stringformat:".02f" }}%;">Insuffisant</div>
+        <div style="width: {{ res.percentages.6|stringformat:".02f" }}%;">À Rejeter</div>
+        <div style="width: {{ res.percentages.7|stringformat:".02f" }}%;">Ne Sait Pas</div>
+    </div>
+{% endfor %}
+{% endblock %}

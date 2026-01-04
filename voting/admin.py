@@ -17,14 +17,15 @@ class CustomUserAdmin(UserAdmin):
         (
             name,
             {
-                'fields': [
-                    *[f for f in opts['fields'] if f != 'email'],
-                    *(["country"] if i == 1 else []),
-                ],
+                'fields': (
+                    *(f for f in opts['fields'] if f != 'email'),
+                    *(("country", "uuid") if i == 1 else ()),
+                ),
             },
         )
         for i, (name, opts) in enumerate(UserAdmin.fieldsets)
     ]
+    readonly_fields = ("uuid",)
 
 
 @admin.register(Person)

@@ -2,8 +2,16 @@
 {% load i18n static %}
 
 {% block content %}
-<h2>{% trans "Available votes" %}</h2>
-<submit-vote-form uuid="{% for vote in votes %}{{ vote.uuid }}{% if not forloop.last %},{% endif %}{% endfor %}"></submit-vote-form>
+<h1 class="title">{% trans "Submit votes" %}</h1>
+<p class="subtitle">
+    {% trans "Here you can submit your votes for the available proposals." %}
+    <br>
+    {% trans "The votes are encrypted in your browser before being sent to the server." %}
+</p>
+<submit-vote-form
+  user="{{ user.uuid|default_if_none:"" }}"
+  uuid="{% for vote in votes %}{{ vote.uuid }}{% if not forloop.last %},{% endif %}{% endfor %}"
+  ></submit-vote-form>
 
 <script src="https://cdn.jsdelivr.net/npm/node-forge@1/dist/forge.min.js"></script>
 <script src="{% static "voting/submit_vote.js" %}"></script>

@@ -3,6 +3,7 @@ import uuid
 from allauth.account.models import EmailAddress
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils.timezone import now
 from django_countries.fields import CountryField
 from polymorphic.models import PolymorphicModel
 import rsa
@@ -25,6 +26,7 @@ class CustomUser(AbstractUser):
         email_address.save()
 
     country = CountryField(default="FR")
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
 
 
 class Query(models.Model):
@@ -65,6 +67,17 @@ class Vote(PolymorphicModel):
         pub = rsa.PublicKey.load_pkcs1(self.public_key_pem.encode('utf-8'))
         priv = rsa.PrivateKey.load_pkcs1(self.private_key_pem.encode('utf-8'))
         return pub, priv
+
+    def can_vote(self, user):
+        """Vérifie si l'utilisateur a le droit de voter."""
+        # On vérifie la date
+        if now() < self.start_time:
+            return (False, "not_started")
+        if now() > self.end_time:
+            return (False, "ended")
+        if user.is_anonymous or not user.allowed_votes.filter(pk=self.pk).exists():
+            return (False, "user")
+        return (True, "")
 
     def __str__(self):
         return self.name
@@ -118,12 +131,24 @@ class Ballot(models.Model):
     token = models.CharField(max_length=512, unique=True, db_index=True)
 
     # Résultat du vote (ex: {"choice_id": 1} ou {"person_id": 5})
-    result = models.JSONField()
+    result = models.TextField(help_text="Données JSON du vote soumis")
 
     # Signature serveur stockée pour vérification publique immédiate par des tiers
     server_signature = models.TextField(help_text="Signature Base64 prouvant l'authenticité")
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # On vérifie si le JSON est minifié correctement
+        import json
+        try:
+            parsed = json.loads(self.result)
+            expected_result = json.dumps(parsed, sort_keys=True, separators=(',', ':'))
+        except json.JSONDecodeError:
+            raise ValueError("Le champ 'result' doit être un JSON valide.")
+        if self.result != expected_result:
+            raise ValueError("Le champ 'result' doit être un JSON minifié, trié par clés, sans espaces inutiles.")
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Ballot {self.token[:15]}... ({self.vote.name})"

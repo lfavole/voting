@@ -1,9 +1,12 @@
 import base64
 import hashlib
 import json
+from collections import Counter, defaultdict
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db.models import TextField, F, Value
+from django.db.models.functions import Concat
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -108,6 +111,8 @@ def submit_vote(request, vote_uuid):
     except json.JSONDecodeError:
         return JsonResponse({"error": "Payload JSON invalide"}, status=400)
 
+    # TODO: On vérifie si le bulletin est correct
+
     # 3. Extraction des composants du bulletin
     token = request.POST.get('token', '')
     signature_b64 = request.POST.get('signature', '')
@@ -130,25 +135,38 @@ def submit_vote(request, vote_uuid):
         sig_bytes = base64.b64decode(signature_b64)
         sig_int = int.from_bytes(sig_bytes, "big")
 
+    except Exception as e:
+        return JsonResponse({"error": f"Erreur de décodage de la signature : {str(e)}"}, status=400)
+
+    else:
         # Vérification RSA : sig^e mod n == m
         if pow(sig_int, pub_key.e, pub_key.n) != m_int:
             return JsonResponse({
                 "error": "Signature invalide. Le bulletin a été modifié ou la signature est incorrecte."
             }, status=400)
 
-    except Exception as e:
-        return JsonResponse({"error": f"Erreur de décodage de la signature : {str(e)}"}, status=400)
-
     # 6. Enregistrement anonyme dans l'urne (Ballot)
-    # On utilise get_or_create pour gérer l'idempotence (renvoi du bulletin)
-    ballot, created = Ballot.objects.get_or_create(
-        token=token,
-        vote=vote_obj,
-        defaults={
-            'result': result_data,
-            'server_signature': signature_b64,  # On stocke la signature pour l'audit public
-        }
-    )
+    # On vérifie si le bulletin existe déjà, s'il n'existe pas, on le crée et on l'enregistre
+    try:
+        ballot = Ballot.objects.get(token=token, vote=vote_obj)
+    except Ballot.DoesNotExist:
+        ballot = Ballot(
+            token=token,
+            vote=vote_obj,
+            result=json_payload,
+            server_signature=signature_b64,
+        )
+        try:
+            ballot.save()
+        except ValueError as e:
+            return JsonResponse({"error": str(e)}, status=400)
+        created = True
+    else:
+        if ballot.result != json_payload or ballot.server_signature != signature_b64:
+            return JsonResponse({
+                "error": "Un bulletin avec ce jeton existe déjà mais son contenu ou sa signature diffèrent."
+            }, status=400)
+        created = False
 
     status_code = 201 if created else 200
     return JsonResponse({
@@ -180,7 +198,7 @@ class BallotListView(ListView):
 
 
 def ballot_view(request, vote_uuid, token):
-    return JsonResponse(get_object_or_404(Ballot, vote__uuid=vote_uuid, token=token).result)
+    return HttpResponse(get_object_or_404(Ballot, vote__uuid=vote_uuid, token=token).result, content_type="application/json")
 
 
 class VotesListView(ListView):
@@ -199,15 +217,13 @@ class VotesListView(ListView):
         ).order_by("name")
 
 
-@login_required
 def submit_vote_view(request, vote_uuid):
     vote = get_object_or_404(Vote, uuid=vote_uuid)
-    if not request.user.allowed_votes.filter(pk=vote.pk).exists():
-        raise PermissionDenied(_("You are not allowed to vote in this election"))
     if is_xhr(request) and request.method == "GET":
         form = get_submit_vote_form(vote)
         form_spec = {
             "title": vote.name,
+            "can_vote": vote.can_vote(request.user),
             "fields": {},
             "field_order": [],
         }
@@ -232,6 +248,123 @@ def submit_vote_view(request, vote_uuid):
         return JsonResponse(form_spec)
     return render(request, "voting/submit_vote.html", {"vote": vote, "form": get_submit_vote_form(vote)})
 
+
+def vote_hash(request, vote_uuid):
+    sha256 = hashlib.sha256()
+    qs = Ballot.objects.filter(vote__uuid=vote_uuid).order_by("token").annotate(
+        entry=Concat(F("token"), Value(":"), F("result"), output_field=TextField())
+    ).values_list("entry", flat=True)
+
+    first = True
+    # iterator() uses database cursor fetching in chunks
+    for entry in qs.iterator():
+        if first:
+            first = False
+        else:
+            sha256.update(b"\n")
+        sha256.update(entry.encode("utf-8"))
+
+    return HttpResponse(sha256.hexdigest(), content_type="text/plain")
+
+
+def calculate_majority_judgment(vote_uuid):
+    from .models import Ballot
+
+    # 1. Extraire tous les bulletins
+    ballots = Ballot.objects.filter(vote__uuid=vote_uuid)
+    if not ballots.exists():
+        return None
+
+    # Définition des mentions dans l'ordre décroissant
+    MENTIONS = {
+        i: value
+        for i, value
+        in enumerate(["Très Bien", "Bien", "Assez Bien", "Passable", "Insuffisant", "À Rejeter", "Ne Sait Pas"], start=1)
+    }
+
+    # Structure pour stocker les votes par candidat
+    # { 'Nom Candidat': ['Très Bien', 'Passable', ...] }
+    results_map = defaultdict(Counter)
+
+    for b in ballots:
+        data = b.result["persons"]
+        for candidate, grade in data.items():
+            results_map[candidate][grade] += 1
+
+    final_scores = []
+
+    # 2. Calcul du profil de mérite pour chaque candidat
+    for candidate, grades in results_map.items():
+        total_votes = grades.total()
+        counts = Counter(grades)
+
+        # On calcule la mention médiane
+        # On trie les mentions reçues selon l'index de MENTIONS
+        sorted_grades = sorted(grades, key=lambda x: x - 1)
+
+        # On détermine pour chaque candidat sa "mention majoritaire" : il s'agit de l'unique mention
+        # qui obtient la majorité absolue des électeurs contre toute mention inférieure,
+        # et la majorité absolue ou l'égalité contre toute mention supérieure. Plus concrètement,
+        # on suppose qu'on a ordonné les électeurs suivant la mention donnée au candidat (de la plus
+        # mauvaise à la meilleure), lorsque le nombre d'électeurs est impair de la forme 2N+1, la mention
+        # majoritaire est la mention attribuée par l'électeur N+1, et lorsque le nombre d'électeurs est pair
+        # de la forme 2N, la mention majoritaire est la mention attribuée par l'électeur N.
+        # p. ex. 10 // 2 + 1 = 5 et 11 // 2 = 6
+        min_index = total_votes // 2 + 1
+        votes_n = 0
+        for mention in reversed(MENTIONS.keys()):
+            votes_n += counts[mention]
+            if votes_n >= min_index:
+                median_grade = mention
+                break
+
+        # Calcul de p+ (ceux qui sont meilleurs que la médiane)
+        # Rappel : meilleurs = index plus petit
+        p_plus = round(sum([counts[m] for m in MENTIONS.keys() if m < median_grade]) / total_votes * 100, 2)
+
+        # Calcul de p- (ceux qui sont moins bons que la médiane)
+        p_moins = round(sum([counts[m] for m in MENTIONS.keys() if m > median_grade]) / total_votes * 100, 2)
+
+        # Calcul des pourcentages pour l'affichage
+        percentages = {m: round(counts[m] / total_votes * 100, 2) for m in MENTIONS.keys()}
+
+        final_scores.append({
+            'candidate': candidate,
+            'median_grade': median_grade,
+            'all_grades': sorted_grades,
+            'percentages': percentages,
+            'total': total_votes,
+            'p_plus': p_plus,
+            'p_moins': p_moins,
+        })
+
+    # 3. Tri des candidats (Logique Simplifiée du Jugement Majoritaire)
+    # On trie par mention médiane. En cas d'égalité, on compare les profils.
+    def tie_breaker(candidate_score):
+        # On transforme la mention en score numérique (plus petit index = meilleur)
+        # On pourrait ajouter ici la logique de retrait des médianes pour les égalités parfaites
+        return (
+            -candidate_score['median_grade'],
+            0 if candidate_score["p_plus"] > candidate_score["p_moins"] else 1,
+            candidate_score["p_plus"]
+            if candidate_score["p_plus"] > candidate_score["p_moins"]
+            else -candidate_score["p_moins"],
+        )
+
+    final_scores.sort(key=tie_breaker)
+
+    return final_scores
+
+
+def vote_results(request, vote_uuid):
+    vote_obj = get_object_or_404(Vote, uuid=vote_uuid)
+
+    results = calculate_majority_judgment(vote_uuid)
+
+    return render(request, 'voting/results.html', {
+        'vote': vote_obj,
+        'results': results
+    })
 
 
 def voting_help(request):
